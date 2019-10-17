@@ -33,37 +33,39 @@ end
 defmodule Cliente do
 
   def launch(pid, op, 1) do
-	send(pid, {self, op, 1..36, 1})
+	send(pid, {self(), op, 1..36, 1})
 	receive do 
 		{:result, l} -> l
 	end
   end
 
   def launch(pid, op, n) when n != 1 do
-	send(pid, [self, op, 1..36, n])
-	spawn fn -> receive do 
-				{:solucion,result} -> result
-				end
-	end
+    spawn fn -> launch(pid, op, 1) end
 	launch(pid, op, n - 1)
   end 
   
   def genera_workload(server_pid, escenario, time) do
+    tiempo1 = Time.utc_now
 	cond do
 		time <= 3 ->  launch(server_pid, :fib, 8); Process.sleep(2000)
 		time == 4 ->  launch(server_pid, :fib, 8);Process.sleep(round(:rand.uniform(100)/100 * 2000))
 		time <= 8 ->  launch(server_pid, :fib, 8);Process.sleep(round(:rand.uniform(100)/1000 * 2000))
 		time == 9 -> launch(server_pid, :fib_tr, 8);Process.sleep(round(:rand.uniform(2)/2 * 2000))
 	end
+    tiempoTotal = Time.diff(Time.utc_now, tiempo1, :milliseconds)
+    IO.puts("Tiempo total: #{tiempoTotal}")
   	genera_workload(server_pid, escenario, rem(time + 1, 10))
   end
 
   def genera_workload(server_pid, escenario) do
+    tiempo1 = Time.utc_now
   	if escenario == 1 do
 		launch(server_pid, :fib, 1)
 	else
 		launch(server_pid, :fib, 4)
 	end
+    tiempoTotal = Time.diff(Time.utc_now, tiempo1, :milliseconds)
+    IO.puts("Tiempo total: #{tiempoTotal}")
 	Process.sleep(2000)
   	genera_workload(server_pid, escenario)
   end
@@ -79,89 +81,77 @@ defmodule Cliente do
 end
 
 defmodule Worker do
-	def initWorker() do
+	def initWorker(pidPool) do
         receive do
-            {:peticion, pidMaster, op, lista, n} -> work(pidMaster, lista, op, n)
+            {:peticion, pidCliente, op, lista, n} -> work(pidPool, pidCliente, lista, op, n)
         end
     end
 
-    def work(pidMaster, listaCalcular, op, veces) do
-        resultado= 
-            case op do
-                :fib -> resultado = Enum.map(listaCalcular, Fib.fibonnaci)
-                :fib_tr -> resultado = Enum.map(listaCalcular, Fib.fibonacci_tr)
-            end
-        send(pidMaster, {:resultadoWorker, self(), resultado})
+    def work(pidPool, pidCliente, listaCalcular, op, veces) do
+        if op == :fib do
+            tiempo1 = Time.utc_now
+            resultado = Enum.map(listaCalcular, fn x -> Fib.fibonacci(x) end)
+            tiempoEjecucion = Time.diff(Time.utc_now, tiempo1, :milliseconds)
+            IO.puts("Tiempo ejecucion: #{tiempoEjecucion}")
+            send(pidCliente, {:result, resultado})
+        else
+            tiempo1 = Time.utc_now
+            resultado = Enum.map(listaCalcular, fn x -> Fib.fibonacci_tr(x) end)
+            tiempoEjecucion = Time.diff(Time.utc_now, tiempo1, :milliseconds)
+            IO.puts("Tiempo ejecucion: #{tiempoEjecucion}")
+            send(pidCliente, {:result, resultado})
+        end
+        send(pidPool, {:fin, self()})
+        IO.puts("fin worker")
     end
 end
 
 
 defmodule Pool do
-import Worker
 
-    # Llamado desde initMaster()
     # Almacena la informacion de las maquinas worker (pasadas como un map[id,4]) y llama a controlarWorkers()
     def initPool(maquinas_workers,carga_maquinas) do
-        spawn fn -> controlarWorkers(maquinas_workers,carga_maquinas) end
-    end
-
-    # Recibe las peticiones del master (:request) y le responde con el 
-    # PID del nuevo worker y el ID de la maquina en la que se encuentra (:reply)
-    # Tambien recibe el PID de los workers terminados (finWorker())
-    def controlarWorkers(maquinas_workers,carga_maquinas) do
-        
         bestWorker = Enum.min(carga_maquinas)
-
+        IO.inspect(carga_maquinas, label: "carga1: ")
+        #carga_maquinas = List.update_at(carga_maquinas, Enum.find_index(carga_maquinas, fn x -> x == pidWorker end), &(&1 - 1));
         if bestWorker == 4 do
             receive do
-                {:fin,pidWorker} -> List.update_at(carga_maquinas, Enum.find_index(carga_maquinas, fn x -> x == pidWorker end), &(&1 - 1))
+                {:fin,pidWorker} -> IO.inspect(carga_maquinas, label: "carga4: ")
             end
         end
+        IO.inspect(carga_maquinas, label: "carga2: ")
 
         indexBestWorker = Enum.find_index(carga_maquinas, fn x -> x == bestWorker end)
         bestWorker = Enum.at(maquinas_workers,indexBestWorker)
 
-        pidBestWorker = Node.spawn(bestWorker, fn -> initWorker() end)
-        List.update_at(carga_maquinas, indexBestWorker, &(&1 + 1))
+        pidBestWorker = Node.spawn(bestWorker, fn -> Worker.initWorker(self()) end)
 
+        carga_maquinas = List.update_at(carga_maquinas, indexBestWorker, &(&1 + 1))
+        IO.puts("bestWorker: #{bestWorker}")
         receive do
             {pidAtenderMaster,:request} -> send(pidAtenderMaster,{:reply,pidBestWorker})
-            {:fin,pidWorker} -> List.update_at(carga_maquinas, Enum.find_index(carga_maquinas, fn x -> x == pidWorker end), &(&1 - 1))
+            {:fin,pidWorker} -> IO.inspect(carga_maquinas, label: "carga4: ")
         end
-
-        controlarWorkers(maquinas_workers,carga_maquinas)
+        IO.inspect(carga_maquinas, label: "carga3: ")
+        initPool(maquinas_workers,carga_maquinas)
     end
 end
 
 defmodule Master do
-import Pool
 
     def atender(pidPool, pidCliente, op, lista, n) do
         send(pidPool, {self(), :request})
         receive do
-            {:reply, pidWorker} -> send(pidWorker, {self(), op, lista, n})
+            {:reply, pidWorker} -> send(pidWorker, {:peticion, pidCliente, op, lista, n})
         end
-        receive do
-            {:resultadoWorker, pidWorker, resultado} -> send(pidPool, {:fin, pidWorker}); send(pidCliente, resultado)
-        end
-        
-    end
-
-    # Escucha de peticiones atendiendolas en diferentes procesos para no secuencializar
-    def listen(pidPool) do 
-        listen(pidPool)
-        receive do
-            {pidCliente, op, lista, n} -> spawn(fn -> atender(pidPool, pidCliente, op, lista, n) end)
-        end
-        listen(pidPool)
     end
 
     # Inicializacion del sistema empezando por el Master
-    def initMaster(nodoPool, nodosWorker, cargasWorkers) do
-        # Lanzamiento del pool
-        pidPool = Node.spawn(nodoPool, fn -> initPool(nodosWorker, cargasWorkers) end)
-        # Funcionamineto del master
-        listen(pidPool)
+    def initMaster(pidPool) do
+        receive do
+            {pidCliente, op, lista, n} -> spawn(fn -> atender(pidPool, pidCliente, op, lista, n) end)
+        end
+        initMaster(pidPool)
     end
 end
 
