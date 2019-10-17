@@ -1,0 +1,7 @@
+pidPool = spawn(fn -> Pool.initPool([:"nodo2@155.210.154.208",:"nodo3@155.210.154.206"], [0,0]) end)
+
+pidMaster = spawn(fn -> Master.initMaster(pidPool) end)
+
+Cliente.cliente(pidMaster,:dos)
+
+iex --name nodo1@155.210.154.207 --erl '-kernel inet_dist_listen_min 32000' --erl '-kernel inet_dist_listen_max 32009' --cookie oscaralberto fibonaccis.exs
