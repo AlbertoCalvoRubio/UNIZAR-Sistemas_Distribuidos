@@ -54,6 +54,7 @@ def launch(pid, op, n) when n != 1 do
   end
   
   def genera_workload(server_pid, escenario, time) do
+    IO.puts("Time: #{time}")
 	cond do
 		time <= 3 ->  launch(server_pid, :fib, 8); Process.sleep(2000)
 		time == 4 ->  launch(server_pid, :fib, 8);Process.sleep(round(:rand.uniform(100)/100 * 2000))
