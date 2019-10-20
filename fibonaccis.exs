@@ -113,7 +113,6 @@ end
 
 
 defmodule Pool do
-
     def initPool(maquinas_workers,carga_maquinas) do
         bestWorker = Enum.min(carga_maquinas)
         if bestWorker == 4 do
@@ -135,7 +134,6 @@ defmodule Pool do
 end
 
 defmodule Master do
-
     def atender(pidEscuchar, pidPool, op, lista, n) do
         # Peticion de worker a Pool
         send(pidPool, {:request, self()})
@@ -152,6 +150,24 @@ defmodule Master do
         end
         initMaster(pidPool)
     end
+end
+
+defmodule Servidor do
+    def server() do
+        receive do
+        {:req, pidCliente, op, lista, veces} -> spawn(fn -> calcular(pidCliente, op, lista) end)
+        end
+        server()
+    end
+
+    def calcular(pidCliente, op, lista) do
+        resultado =
+            case op do
+                :fib -> Enum.map(lista, fn x -> Fib.fibonacci(x) end)
+                :fib_tr -> Enum.map(lista, fn x -> Fib.fibonacci_tr(x) end)
+            end
+        send(pidCliente, {:result, resultado})
+    end              
 end
 
 
