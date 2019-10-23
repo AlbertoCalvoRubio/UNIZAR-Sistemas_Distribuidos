@@ -86,27 +86,6 @@ def launch(pid, op, n) when n != 1 do
   end
 end
 
-defmodule Servidor do
-    def server() do
-        receive do
-        {:req, pidCliente, op, lista, veces} -> spawn(fn -> calcular(pidCliente, op, lista) end)
-        end
-        server()
-    end
-
-    def calcular(pidCliente, op, lista) do
-        tiempoInicial = Time.utc_now
-        resultado =
-            case op do
-                :fib -> Enum.map(lista, fn x -> Fib.fibonacci(x) end)
-                :fib_tr -> Enum.map(lista, fn x -> Fib.fibonacci_tr(x) end)
-            end
-        tiempoEjecucion = Time.diff(Time.utc_now, tiempoInicial, :milliseconds)
-        IO.puts("Tiempo ejecucion: #{tiempoEjecucion}")
-        send(pidCliente, {:result, resultado})
-    end              
-end
-
 defmodule Worker do
 	def initWorker() do
         receive do
@@ -166,7 +145,7 @@ defmodule Master do
     # Inicializacion del sistema empezando por el Master
     def initMaster(pidPool) do
         receive do
-            {pidEscuchar, op, lista, n} -> spawn(fn -> atender(pidEscuchar, pidPool, op, lista, n) end)
+            {:req, pidEscuchar, op, lista, n} -> spawn(fn -> atender(pidEscuchar, pidPool, op, lista, n) end)
         end
         initMaster(pidPool)
     end
