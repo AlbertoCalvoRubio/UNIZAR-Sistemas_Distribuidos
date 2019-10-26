@@ -20,6 +20,7 @@ defmodule Para_Repositorio do
     receive do
         {:reply, :ok} -> IO.puts("Fin escritura")
     end
+    post_protocol()
  end
 
 # me: identificador entre los n procesos
