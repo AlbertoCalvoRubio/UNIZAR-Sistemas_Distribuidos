@@ -11,10 +11,11 @@ defmodule Para_Repositorio do
     semaforo = Semaforo.create()
     spawn(fn -> recibir_peticion(globalvars, semaforo, me, op_lectura) end)
     pre_protocol(globalvars, semaforo, listaVecinos, n, me, op_lectura)
+    osn = GlobalVars.get(globalvars, :osn)
     # ---- Inicio SC ----
     send(pidRepo, {op_lectura, self()})
     receive do
-        {:reply, texto} -> texto
+        {:reply, texto} -> IO.puts("#{osn} --> #{texto}")
     end
     # ----- Fin SC ------
     post_protocol(globalvars)
@@ -26,10 +27,11 @@ defmodule Para_Repositorio do
     semaforo = Semaforo.create()
     spawn(fn -> recibir_peticion(globalvars, semaforo, me, op_escritura) end)
     pre_protocol(globalvars, semaforo, listaVecinos, n, me, op_escritura)
+    osn = GlobalVars.get(globalvars, :osn)
     # ---- Inicio SC ----
     send(pidRepo, {op_escritura, self(), texto})
     receive do
-        {:reply, :ok} -> IO.puts("Fin escritura")
+        {:reply, :ok} -> IO.puts("#{osn} --> #{texto}")
     end
     # ----- Fin SC ------
     post_protocol(globalvars)
@@ -40,7 +42,8 @@ defmodule Para_Repositorio do
     Semaforo.wait(semaforo, pid)
     # ---- Exclusión mútua ----
     GlobalVars.set(globalvars, :request_SC, :true)  # request_SC = true
-    GlobalVars.set(globalvars, :osn, GlobalVars.get(globalvars, :hsn) + 1) # osn = hsn + 1
+    osn = GlobalVars.get(globalvars, :hsn) + 1
+    GlobalVars.set(globalvars, :osn, osn)
     # ---- Fin exclusión mútua ----
     Semaforo.signal(semaforo)
     Process.spawn(fn -> reply_receiver(pid, n-1)) # Se escucha las respuestas de los demas procesos
@@ -51,10 +54,10 @@ defmodule Para_Repositorio do
   end
 
   defp post_protocol(globalvars) do
-    request_SC = :false
+    GlobalVars.set(globalvars, :request_SC, :false)  # request_SC = false
     listaAplazados = GlobalVars.get(globalvars, :listaAplazados)
-    Enum.each(listaAplazados, fn aplazado -> send(aplazado, :reply))
-    GlobalVars.set(globalvars, :globalvars, [])  
+    Enum.each(listaAplazados, fn aplazado -> send(aplazado, :reply_SC)) # Contestar a cada proceso
+    GlobalVars.set(globalvars, :globalvars, []) # Vaciar lista de aplazados, ya se han contestado  
 
  defp recibir_peticion(globalvars, semaforo, me, op1) do
     {pidVecino, osnVecino, idVecino, op2} = receive do
