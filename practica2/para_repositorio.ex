@@ -6,8 +6,9 @@
 
 defmodule Para_Repositorio do
  def lector(pidRepo, me, listaVecinos, op_lectura) do
+    IO.puts("Inicio lector")
     n = length(listaVecinos)
-    globalvars = GlobalVars.start_link()
+    {:ok, globalvars} = GlobalVars.start_link()
     semaforo = Semaforo.create()
     spawn(fn -> recibir_peticion(globalvars, semaforo, me, op_lectura) end)
     pre_protocol(globalvars, semaforo, listaVecinos, n, me, op_lectura)
@@ -22,9 +23,12 @@ defmodule Para_Repositorio do
  end
 
  def escritor(pidRepo, me, listaVecinos, op_escritura, texto) do
+    IO.puts("Inicio escritor")
     n = length(listaVecinos)
     globalvars = GlobalVars.start_link()
+    IO.inspect(globalvars)
     semaforo = Semaforo.create()
+    IO.inspect(semaforo)
     spawn(fn -> recibir_peticion(globalvars, semaforo, me, op_escritura) end)
     pre_protocol(globalvars, semaforo, listaVecinos, n, me, op_escritura)
     osn = GlobalVars.get(globalvars, :osn)
@@ -38,6 +42,7 @@ defmodule Para_Repositorio do
  end
  
  defp pre_protocol(globalvars, semaforo, listaVecinos, n, me, op_t) do
+    IO.puts("Inicio pre_protocol")
     pid = self()
     Semaforo.wait(semaforo, pid)
     # ---- Exclusión mútua ----
@@ -46,7 +51,7 @@ defmodule Para_Repositorio do
     GlobalVars.set(globalvars, :osn, osn)
     # ---- Fin exclusión mútua ----
     Semaforo.signal(semaforo)
-    Process.spawn(fn -> recibir_reply(pid, n-1) end) # Se escucha las respuestas de los demas procesos
+    spawn(fn -> recibir_reply(pid, n) end) # Se escucha las respuestas de los demas procesos
     Enum.each(listaVecinos, fn pidVecino -> send(pidVecino, {:request_SC, osn, me, op_t}) end) # Enviar peticiones
     receive do  # Esperar al permiso para entrar en SC
         :ok_SC -> :ok
@@ -54,6 +59,7 @@ defmodule Para_Repositorio do
  end
 
  defp post_protocol(globalvars) do
+    IO.puts("Inicio post_protocol")
     GlobalVars.set(globalvars, :request_SC, :false)  # request_SC = false
     listaAplazados = GlobalVars.get(globalvars, :listaAplazados)
     Enum.each(listaAplazados, fn aplazado -> send(aplazado, :reply_SC) end) # Contestar a cada proceso
@@ -61,6 +67,7 @@ defmodule Para_Repositorio do
  end
 
  defp recibir_peticion(globalvars, semaforo, me, op1) do
+    IO.puts("Inicio recibir_peticion")
     {pidVecino, osnVecino, idVecino, op2} = receive do
         {:request_SC, n_pid, n_osn, n_id, n_op2} -> {n_pid, n_osn, n_id, n_op2}
     end
@@ -81,6 +88,7 @@ defmodule Para_Repositorio do
  end
 
  defp recibir_reply(parent, oustanding_reply_count) do
+    IO.puts("Inicio recibir_reply")
     if (oustanding_reply_count == 0) do
         send(parent, :ok_SC)
     end
@@ -117,11 +125,11 @@ defmodule GlobalVars do
 end
 
 defmodule Semaforo do
- def create(estado, listaEspera) do
-    spawn(fn -> semaforo(estado, listaEspera) end)
+ def create() do
+    spawn(fn -> semaforo(1, []) end)
  end
 
- def wait(semaforo, pid) do
+ def wait(semaforo, pid) do 
     send(semaforo, {:wait, pid})
     receive do
         :wait_ok -> :ok
