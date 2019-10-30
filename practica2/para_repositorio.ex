@@ -21,7 +21,7 @@ defmodule Para_Repositorio do
     post_protocol(globalvars)
  end
 
- def escritor(pidRepo, n, me, op_escritura, texto) do
+ def escritor(pidRepo, me, listaVecinos, op_escritura, texto) do
     n = length(listaVecinos)
     globalvars = GlobalVars.start_link()
     semaforo = Semaforo.create()
@@ -37,7 +37,7 @@ defmodule Para_Repositorio do
     post_protocol(globalvars)
  end
  
-  defp pre_protocol(globalvars, semaforo, listaVecinos, n, me, op_t) do
+ defp pre_protocol(globalvars, semaforo, listaVecinos, n, me, op_t) do
     pid = self()
     Semaforo.wait(semaforo, pid)
     # ---- Exclusión mútua ----
@@ -46,26 +46,29 @@ defmodule Para_Repositorio do
     GlobalVars.set(globalvars, :osn, osn)
     # ---- Fin exclusión mútua ----
     Semaforo.signal(semaforo)
-    Process.spawn(fn -> reply_receiver(pid, n-1)) # Se escucha las respuestas de los demas procesos
-    Enum.each(listaVecinos, fn pidVecino -> send(pidVecino, {:request_SC, osn, me, op_t})) # Enviar peticiones
+    Process.spawn(fn -> recibir_reply(pid, n-1) end) # Se escucha las respuestas de los demas procesos
+    Enum.each(listaVecinos, fn pidVecino -> send(pidVecino, {:request_SC, osn, me, op_t}) end) # Enviar peticiones
     receive do  # Esperar al permiso para entrar en SC
-        :ok_SC
+        :ok_SC -> :ok
     end
-  end
+ end
 
-  defp post_protocol(globalvars) do
+ defp post_protocol(globalvars) do
     GlobalVars.set(globalvars, :request_SC, :false)  # request_SC = false
     listaAplazados = GlobalVars.get(globalvars, :listaAplazados)
-    Enum.each(listaAplazados, fn aplazado -> send(aplazado, :reply_SC)) # Contestar a cada proceso
+    Enum.each(listaAplazados, fn aplazado -> send(aplazado, :reply_SC) end) # Contestar a cada proceso
     GlobalVars.set(globalvars, :globalvars, []) # Vaciar lista de aplazados, ya se han contestado  
+ end
 
  defp recibir_peticion(globalvars, semaforo, me, op1) do
     {pidVecino, osnVecino, idVecino, op2} = receive do
         {:request_SC, n_pid, n_osn, n_id, n_op2} -> {n_pid, n_osn, n_id, n_op2}
     end
-    hsn = max(GlobalVars.get(globalvars, :hsn), osnVecino)
+    GlobalVars.set(globalvars, :hsn, max(GlobalVars.get(globalvars, :hsn), osnVecino))
     Semaforo.wait(semaforo, self())
     # ---- Exclusión mútua ----
+    request_SC = GlobalVars.get(globalvars, :request_SC)
+    osn = GlobalVars.get(globalvars, :osn)
     defer_it = request_SC && ((osnVecino > osn) || (osnVecino == osn && idVecino > me)) && exclude(op1, op2)
     # ---- Fin exclusión mútua ----
     Semaforo.signal(semaforo)
@@ -74,14 +77,15 @@ defmodule Para_Repositorio do
     else
         send(pidVecino, :reply_SC)
     end
-    recibir_peticion(globalvars, semaforo, me)
+    recibir_peticion(globalvars, semaforo, me, op1)
  end
 
- defp recibir_reply(oustanding_reply_count) do
+ defp recibir_reply(parent, oustanding_reply_count) do
     if (oustanding_reply_count == 0) do
-        send(pidMain, :ok_SC)
+        send(parent, :ok_SC)
+    end
     receive do
-        :reply_SC -> recibir_reply(oustanding_reply_count-1)
+        :reply_SC -> recibir_reply(parent, oustanding_reply_count-1)
     end
  end
 
@@ -94,10 +98,9 @@ defmodule Para_Repositorio do
             read_principal:     %{update_resumen: false, update_principal: true,update_entrega: false, read_resumen: true, read_principal: false,read_entrega: false},
             read_entrega:       %{update_resumen: false, update_principal: false,update_entrega: true, read_resumen: false, read_principal: false,read_entrega: false},
             }
-    matriz[op1][op2]
-        
+    matriz[op1][op2]   
  end
-
+end
 
 defmodule GlobalVars do
     def start_link() do
@@ -105,7 +108,7 @@ defmodule GlobalVars do
     end
 
     def get(globalvars, var) do
-        Agent.get(globalvars, fn map -> Map.get(mapa, var) end)
+        Agent.get(globalvars, fn mapa -> Map.get(mapa, var) end)
     end
 
     def set(globalvars, var, valor) do
@@ -115,13 +118,13 @@ end
 
 defmodule Semaforo do
  def create(estado, listaEspera) do
-    spawn(fn -> semaforo(estado, listaEspera)
+    spawn(fn -> semaforo(estado, listaEspera) end)
  end
 
  def wait(semaforo, pid) do
     send(semaforo, {:wait, pid})
     receive do
-        :wait_ok
+        :wait_ok -> :ok
     end
  end
 
