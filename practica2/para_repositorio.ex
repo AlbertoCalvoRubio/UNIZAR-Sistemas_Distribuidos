@@ -5,113 +5,145 @@
  # DESCRIPCION:
 
 defmodule Para_Repositorio do
- def lector(pidRepo, op_lectura) do
-    pre_protocol()
+ def lector(pidRepo, me, listaVecinos, op_lectura) do
+    n = length(listaVecinos)
+    globalvars = GlobalVars.start_link()
+    semaforo = Semaforo.create()
+    spawn(fn -> recibir_peticion(globalvars, semaforo, me, op_lectura) end)
+    pre_protocol(globalvars, semaforo, listaVecinos, n, me, op_lectura)
+    # ---- Inicio SC ----
     send(pidRepo, {op_lectura, self()})
     receive do
         {:reply, texto} -> texto
     end
-    post_protocol()
+    # ----- Fin SC ------
+    post_protocol(globalvars)
  end
 
- def escritor(pidRepo, op_escritura) do
-    pre_protocol()
+ def escritor(pidRepo, n, me, op_escritura, texto) do
+    n = length(listaVecinos)
+    globalvars = GlobalVars.start_link()
+    semaforo = Semaforo.create()
+    spawn(fn -> recibir_peticion(globalvars, semaforo, me, op_escritura) end)
+    pre_protocol(globalvars, semaforo, listaVecinos, n, me, op_escritura)
+    # ---- Inicio SC ----
     send(pidRepo, {op_escritura, self(), texto})
     receive do
         {:reply, :ok} -> IO.puts("Fin escritura")
     end
-    post_protocol()
+    # ----- Fin SC ------
+    post_protocol(globalvars)
  end
-
-# me: identificador entre los n procesos
-# n: total de procesos lectores o escritores
-# osn: our_sequence_number
-# hsn: highest_sequence_number
-# orc: oustanding_reply_count
- defp global_vars(me, n, osn, hsn, orp) do
-    {n_osn, n_hsn, n_orp} = receive do
-        {:read, :me, pid} -> send(pid, me); {osn, hsn,orp}
-        {:read, :n, pid} -> send(pid, n); {osn, hsn,orp}
-        {:read, :osn, pid} -> send(pid, osn); {osn, hsn,orp}
-        {:read, :hsn, pid} -> send(pid, hsn); {osn, hsn,orp}
-        {:read, :orp, pid} -> send(pid, orp); {osn, hsn,orp}
-        {:write, :osn, pid, value} -> send(pid, :ok); {value, hsn, orp}
-        {:write, :hsn, pid, value} -> send(pid, :ok); {osn, value, orp}
-        {:write, :orp, pid, value} -> send(pid, :ok); {osn, hsn, value}
+ 
+  defp pre_protocol(globalvars, semaforo, listaVecinos, n, me, op_t) do
+    pid = self()
+    Semaforo.wait(semaforo, pid)
+    # ---- Exclusión mútua ----
+    GlobalVars.set(globalvars, :request_SC, :true)  # request_SC = true
+    GlobalVars.set(globalvars, :osn, GlobalVars.get(globalvars, :hsn) + 1) # osn = hsn + 1
+    # ---- Fin exclusión mútua ----
+    Semaforo.signal(semaforo)
+    Process.spawn(fn -> reply_receiver(pid, n-1)) # Se escucha las respuestas de los demas procesos
+    Enum.each(listaVecinos, fn pidVecino -> send(pidVecino, {:request_SC, osn, me, op_t})) # Enviar peticiones
+    receive do  # Esperar al permiso para entrar en SC
+        :ok_SC
     end
-    global_vars(me, n, n_osn, n_hsn, n_orp)   
+  end
+
+  defp post_protocol(globalvars) do
+    request_SC = :false
+    listaAplazados = GlobalVars.get(globalvars, :listaAplazados)
+    Enum.each(listaAplazados, fn aplazado -> send(aplazado, :reply))
+    GlobalVars.set(globalvars, :globalvars, [])  
+
+ defp recibir_peticion(globalvars, semaforo, me, op1) do
+    {pidVecino, osnVecino, idVecino, op2} = receive do
+        {:request_SC, n_pid, n_osn, n_id, n_op2} -> {n_pid, n_osn, n_id, n_op2}
+    end
+    hsn = max(GlobalVars.get(globalvars, :hsn), osnVecino)
+    Semaforo.wait(semaforo, self())
+    # ---- Exclusión mútua ----
+    defer_it = request_SC && ((osnVecino > osn) || (osnVecino == osn && idVecino > me)) && exclude(op1, op2)
+    # ---- Fin exclusión mútua ----
+    Semaforo.signal(semaforo)
+    if (defer_it) do
+        GlobalVars.set(globalvars, :listaAplazados, [GlobalVars.get(globalvars, :listaAplazados) | pidVecino])
+    else
+        send(pidVecino, :reply_SC)
+    end
+    recibir_peticion(globalvars, semaforo, me)
  end
 
- def wait_acks(number) when number > 0 do
+ defp recibir_reply(oustanding_reply_count) do
+    if (oustanding_reply_count == 0) do
+        send(pidMain, :ok_SC)
     receive do
-        {:ack}
+        :reply_SC -> recibir_reply(oustanding_reply_count-1)
     end
-    wait_acks(number-1)
  end
 
- #def send_acks(pid_global_vars) do
-    # sacamos los actores que esperan nuestra confirmacion
- #   send(pid_global_vars,{:read,:pid_actors_queue,self()})
- #   pid_actors_queue = receive do
- #       {pid_actors_queue} -> pid_actors_queue
- #   end
-    # enviamos la confirmacion a todos esos actores
- #   Enum.each(pid, fn x -> send(x,:ack) end)
-    # vaciamos toda la cola de actores esperando
- #   send(pid_global_vars,{:write,:pid_actors_queue,self(),[]})
- #   receive do
- #       {:ok}
- #   end
- #end
+ defp exclude(op1, op2) do
+    matriz = %{
+            update_resumen:     %{update_resumen: true, update_principal: false,update_entrega: false, read_resumen: true, read_principal: false,read_entrega: false},
+            update_principal:   %{update_resumen: false, update_principal: true,update_entrega: false, read_resumen: false, read_principal: true,read_entrega: false},
+            update_entrega:     %{update_resumen: false, update_principal: false,update_entrega: true, read_resumen: false, read_principal: false,read_entrega: true},
+            read_resumen:       %{update_resumen: true, update_principal: false,update_entrega: false, read_resumen: false, read_principal: false,read_entrega: false},
+            read_principal:     %{update_resumen: false, update_principal: true,update_entrega: false, read_resumen: true, read_principal: false,read_entrega: false},
+            read_entrega:       %{update_resumen: false, update_principal: false,update_entrega: true, read_resumen: false, read_principal: false,read_entrega: false},
+            }
+    matriz[op1][op2]
+        
+ end
 
- def begin_op(pid_global_vars,pid_actors,op_type) do
-    # modificamos el estado del proceso
-    send(pid_global_vars,{:write,:state,self(),:trying})
+
+defmodule GlobalVars do
+    def start_link() do
+        Agent.start_link(fn -> %{request_SC: nil, osn: nil, hsn: 0, listaAplazados: []} end)
+    end
+
+    def get(globalvars, var) do
+        Agent.get(globalvars, fn map -> Map.get(mapa, var) end)
+    end
+
+    def set(globalvars, var, valor) do
+        Agent.ipdate(globalvars, fn mapa -> Map.replace(mapa, var, valor) end)
+    end
+end
+
+defmodule Semaforo do
+ def create(estado, listaEspera) do
+    spawn(fn -> semaforo(estado, listaEspera)
+ end
+
+ def wait(semaforo, pid) do
+    send(semaforo, {:wait, pid})
     receive do
-        {:ok}
+        :wait_ok
     end
-    # incrementamos nuestro reloj
-    send(pid_global_vars,{:read,:clock,self()})
-    clock = receive do
-        {clk} -> send(pid_global_vars,{:write,:clock,self(),clk+1}); clk+1
-    end
+ end
+
+ def signal(semaforo) do
+    send(semaforo, :signal)
+ end
+
+ defp semaforo(estado, listaEspera) do
     receive do
-        {:ok}
-    end
-    # ----------------------------------- MODIFICAR CON FUNCION REQUEST
-    # enviamos las peticiones al resto de actores (incluir la matriz booleana)
-    send(pid_global_vars,{:read,:n,self()})
-    n = receive do
-        {n} -> n
-    end
-    spawn(fn -> send_request(pid_actors,clock,n-1,op_type) end) # con spawn para no secuencializar los envios
-    # -----------------------------------
-    # esperamos a que nos confirmen todos
-    wait_acks(n-1) # n para saber cuantos tiene que esperar
-    # modificamos el estado del proceso
-    send(pid_global_vars,{:write,:state,self(),:in})
-    receive do
-        {:ok}
+        :signal -> 
+            if !Enum.empty(listaEspera) do      # Hay mas procesos esperando, se da permiso al primero
+                primero = List.pop_at(1, listaEspera)
+                send(primero, :ok)
+                semaforo(0,listaEspera)
+            else                                # No hay procesos esperando
+                semaforo(1, listaEspera)
+            end
+        {:wait, pid} ->
+            if estado == 1 do                   # Se otorga permiso directamente
+                send(pid, :ok)
+                semaforo(0, listaEspera)
+            else
+                semaforo(0, [listaEspera|pid])  # Se añade a la cola 
+            end
     end
  end
-
- def end_op(pid_global_vars) do
-    # modificamos el estado del proceso
-    send(pid_global_vars,{:write,:state,self(),:out})
-    receive do
-        {:ok}
-    end
-    # enviamos confirmacion a los actores que esperaban
-    permission(pid_global_vars)
- end
-
- def permission(j) do
-
- end
-
- def request(k,j,op_t) do
-
- end
-
 end
  
