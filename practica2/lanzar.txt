@@ -1,0 +1,8 @@
+iex --name nodo1@localhost --erl '-kernel inet_dist_listen_min 32000' --erl '-kernel inet_dist_listen_max 32009' --cookie oscaralberto repositorio.exs
+
+import_file("para_repositorio.ex")
+
+pidRepo = spawn(fn -> Repositorio.init end)
+
+Para_Repositorio.escritor(pidRepo, 1, [], :update_entrega, "Ejemplo")
+

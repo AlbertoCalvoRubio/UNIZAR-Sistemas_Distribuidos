@@ -16,7 +16,7 @@ defmodule Para_Repositorio do
     # ---- Inicio SC ----
     send(pidRepo, {op_lectura, self()})
     receive do
-        {:reply, texto} -> IO.puts("#{osn} --> #{texto}")
+        {:reply, texto} -> IO.puts("Lector #{me}: #{osn} --> #{texto}")
     end
     # ----- Fin SC ------
     post_protocol(globalvars)
@@ -35,7 +35,7 @@ defmodule Para_Repositorio do
     # ---- Inicio SC ----
     send(pidRepo, {op_escritura, self(), texto})
     receive do
-        {:reply, :ok} -> IO.puts("#{osn} --> #{texto}")
+        {:reply, :ok} -> IO.puts("Escritor #{me}: #{osn} --> #{texto}")
     end
     # ----- Fin SC ------
     post_protocol(globalvars)
@@ -56,6 +56,7 @@ defmodule Para_Repositorio do
     receive do  # Esperar al permiso para entrar en SC
         :ok_SC -> :ok
     end
+    IO.puts("Fin pre_protocol")
  end
 
  defp post_protocol(globalvars) do
@@ -63,11 +64,11 @@ defmodule Para_Repositorio do
     GlobalVars.set(globalvars, :request_SC, :false)  # request_SC = false
     listaAplazados = GlobalVars.get(globalvars, :listaAplazados)
     Enum.each(listaAplazados, fn aplazado -> send(aplazado, :reply_SC) end) # Contestar a cada proceso
-    GlobalVars.set(globalvars, :globalvars, []) # Vaciar lista de aplazados, ya se han contestado  
+    GlobalVars.set(globalvars, :globalvars, []) # Vaciar lista de aplazados, ya se han contestado 
+    IO.puts("Fin post_protocol") 
  end
 
  defp recibir_peticion(globalvars, semaforo, me, op1) do
-    IO.puts("Inicio recibir_peticion")
     {pidVecino, osnVecino, idVecino, op2} = receive do
         {:request_SC, n_pid, n_osn, n_id, n_op2} -> {n_pid, n_osn, n_id, n_op2}
     end
@@ -77,6 +78,7 @@ defmodule Para_Repositorio do
     request_SC = GlobalVars.get(globalvars, :request_SC)
     osn = GlobalVars.get(globalvars, :osn)
     defer_it = request_SC && ((osnVecino > osn) || (osnVecino == osn && idVecino > me)) && exclude(op1, op2)
+    IO.puts("recibir_peticion #{me}: request_sc(#{request_SC}), osnVecino(#{osnVecino}), osn(#{osn}), idVecino(#{idVecino}), me(#{me}) --> defer_it(#{defer_it})")
     # ---- Fin exclusión mútua ----
     Semaforo.signal(semaforo)
     if (defer_it) do
@@ -88,7 +90,7 @@ defmodule Para_Repositorio do
  end
 
  defp recibir_reply(parent, oustanding_reply_count) do
-    IO.puts("Inicio recibir_reply")
+    IO.puts("recibir_reply: outstanding_reply_count(#{outstanding_reply_count})")
     if (oustanding_reply_count == 0) do
         send(parent, :ok_SC)
     end
@@ -120,7 +122,7 @@ defmodule GlobalVars do
     end
 
     def set(globalvars, var, valor) do
-        Agent.ipdate(globalvars, fn mapa -> Map.replace(mapa, var, valor) end)
+        Agent.update(globalvars, fn mapa -> Map.replace(mapa, var, valor) end)
     end
 end
 
@@ -132,7 +134,7 @@ defmodule Semaforo do
  def wait(semaforo, pid) do 
     send(semaforo, {:wait, pid})
     receive do
-        :wait_ok -> :ok
+        :wait_ok -> :wait_ok
     end
  end
 
@@ -141,6 +143,7 @@ defmodule Semaforo do
  end
 
  defp semaforo(estado, listaEspera) do
+    IO.puts("Semaforo: estado(#{estado}) listaEspera(#{listaEspera})")
     receive do
         :signal -> 
             if !Enum.empty(listaEspera) do      # Hay mas procesos esperando, se da permiso al primero
@@ -152,7 +155,7 @@ defmodule Semaforo do
             end
         {:wait, pid} ->
             if estado == 1 do                   # Se otorga permiso directamente
-                send(pid, :ok)
+                send(pid, :wait_ok)
                 semaforo(0, listaEspera)
             else
                 semaforo(0, [listaEspera|pid])  # Se añade a la cola 
