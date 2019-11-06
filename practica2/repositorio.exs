@@ -20,6 +20,7 @@ defmodule Repositorio do
 			{:read_principal, c_pid} -> send(c_pid, {:reply, principal}); {resumen, principal, entrega}
 			{:read_entrega, c_pid} -> send(c_pid, {:reply, entrega}); {resumen, principal, entrega}
 		end
+		IO.puts("#{n_resumen}, #{n_principal}, #{n_entrega}")
 		repo_server({n_resumen, n_principal, n_entrega})
 	end
 end

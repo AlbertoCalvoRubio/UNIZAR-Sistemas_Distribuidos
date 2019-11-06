@@ -1,8 +1,20 @@
-iex --name nodo1@localhost --erl '-kernel inet_dist_listen_min 32000' --erl '-kernel inet_dist_listen_max 32009' --cookie oscaralberto repositorio.exs
+iex --name nodo1@127.0.0.1 --erl '-kernel inet_dist_listen_min 32000' --erl '-kernel inet_dist_listen_max 32009' --cookie oscaralberto para_repositorio.ex
 
-import_file("para_repositorio.ex")
+iex --name nodo2@127.0.0.1 --erl '-kernel inet_dist_listen_min 32000' --erl '-kernel inet_dist_listen_max 32009' --cookie oscaralberto para_repositorio.ex
 
-pidRepo = spawn(fn -> Repositorio.init end)
+iex --name nodo3@127.0.0.1 --erl '-kernel inet_dist_listen_min 32000' --erl '-kernel inet_dist_listen_max 32009' --cookie oscaralberto para_repositorio.ex
 
-Para_Repositorio.escritor(pidRepo, 1, [], :update_entrega, "Ejemplo")
+iex --name nodo4@127.0.0.1 --erl '-kernel inet_dist_listen_min 32000' --erl '-kernel inet_dist_listen_max 32009' --cookie oscaralberto para_repositorio.ex
 
+iex --name nodo5@127.0.0.1 --erl '-kernel inet_dist_listen_min 32000' --erl '-kernel inet_dist_listen_max 32009' --cookie oscaralberto para_repositorio.ex
+
+iex --name nodo6@127.0.0.1 --erl '-kernel inet_dist_listen_min 32000' --erl '-kernel inet_dist_listen_max 32009' --cookie oscaralberto para_repositorio.ex
+
+import_file("repositorio.exs")
+
+Process.register(self, :repo)
+Repositorio.init
+
+Node.connect(:"nodo6@127.0.0.1")
+
+Para_Repositorio.lanzarEscritores({:repo, :"nodo5@127.0.0.1"}, 4, [:"nodo1@127.0.0.1", :"nodo2@127.0.0.1",:"nodo3@127.0.0.1", :"nodo4@127.0.0.1"],[:update_entrega])

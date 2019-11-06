@@ -1,71 +1,87 @@
 # AUTOR: Oscar Baselga y Alberto Calvo
  # FICHERO: para_repositorio.ex
  # FECHA: 26 de octubre de 2019
- # TIEMPO: 
- # DESCRIPCION:
+ # TIEMPO: 20 horas
+ # DESCRIPCION: modulo para un repositorio al que acceden lectores y escritores de forma distribuida
 
 defmodule Para_Repositorio do
- def lector(pidRepo, me, listaVecinos, op_lectura) do
-    IO.puts("Inicio lector")
-    n = length(listaVecinos)
-    {:ok, globalvars} = GlobalVars.start_link()
-    semaforo = Semaforo.create()
-    spawn(fn -> recibir_peticion(globalvars, semaforo, me, op_lectura) end)
-    pre_protocol(globalvars, semaforo, listaVecinos, n, me, op_lectura)
-    osn = GlobalVars.get(globalvars, :osn)
+ def lanzarEscritores(pidRepo, 1, listaNodos, operaciones) do
+    nodo = Enum.at(listaNodos, 0)
+    op_escritura = Enum.random(operaciones)
+    Node.spawn(nodo, Para_Repositorio, :escritor, [pidRepo, 1, listaNodos, op_escritura])
+ end
+
+ def lanzarEscritores(pidRepo, n, listaNodos, operaciones) do 
+    nodo = Enum.at(listaNodos, n-1)
+    op_escritura = Enum.random(operaciones)
+    Node.spawn(nodo, Para_Repositorio, :escritor, [pidRepo, n, listaNodos, op_escritura])
+    lanzarEscritores(pidRepo, n-1, listaNodos, operaciones)
+ end
+
+  def lanzarLectores(pidRepo, 1, listaNodos, operaciones) do
+    nodo = Enum.at(listaNodos, 0)
+    op_lectura = Enum.random(operaciones)
+    Node.spawn(nodo, Para_Repositorio, :lector, [pidRepo, 1, listaNodos, op_lectura])
+ end
+
+ def lanzarLectores(pidRepo, n, listaNodos, operaciones) do 
+    nodo = Enum.at(listaNodos, n-1)
+    op_lectura = Enum.random(operaciones)
+    Node.spawn(nodo, Para_Repositorio, :lector, [pidRepo, n, listaNodos, op_escritura])
+    lanzarEscritores(pidRepo, n-1, listaNodos, operaciones)
+ end
+ 
+ def lector(pidRepo, me, listaNodos, op_lectura) do
+    {listaVecinos, numVecinos, globalvars, semaforo} = init(listaNodos, me)
+    spawn(fn -> recibir_peticion_init(globalvars, semaforo, me, op_lectura) end)
+    #Process.sleep(round(:rand.uniform(100)/100 * 2000)) # Simulacion para tener distintos osn
+    pre_protocol(globalvars, semaforo, listaVecinos, numVecinos, me, op_lectura)
     # ---- Inicio SC ----
     send(pidRepo, {op_lectura, self()})
     receive do
-        {:reply, texto} -> IO.puts("Lector #{me}: #{osn} --> #{texto}")
+        {:reply, texto} -> IO.inspect("Lector #{me} he leido: #{texto}")
     end
     # ----- Fin SC ------
     post_protocol(globalvars)
  end
 
- def escritor(pidRepo, me, listaVecinos, op_escritura, texto) do
-    IO.puts("Inicio escritor")
-    n = length(listaVecinos)
-    globalvars = GlobalVars.start_link()
-    IO.inspect(globalvars)
-    semaforo = Semaforo.create()
-    IO.inspect(semaforo)
-    spawn(fn -> recibir_peticion(globalvars, semaforo, me, op_escritura) end)
-    pre_protocol(globalvars, semaforo, listaVecinos, n, me, op_escritura)
-    osn = GlobalVars.get(globalvars, :osn)
+ def escritor(pidRepo, me, listaNodos, op_escritura) do
+    {listaVecinos, numVecinos, globalvars, semaforo} = init(listaNodos, me)
+    spawn(fn -> recibir_peticion_init(globalvars, semaforo, me, op_escritura) end)
+    #Process.sleep(round(:rand.uniform(100)/100 * 2000)) # Simulacion para tener distintos osn
+    pre_protocol(globalvars, semaforo, listaVecinos, numVecinos, me, op_escritura)
     # ---- Inicio SC ----
-    send(pidRepo, {op_escritura, self(), texto})
+    send(pidRepo, {op_escritura, self(), me})
     receive do
-        {:reply, :ok} -> IO.puts("Escritor #{me}: #{osn} --> #{texto}")
+        {:reply, :ok} -> IO.inspect("Escritor #{me} he escrito")
     end
     # ----- Fin SC ------
     post_protocol(globalvars)
  end
  
- defp pre_protocol(globalvars, semaforo, listaVecinos, n, me, op_t) do
-    IO.puts("Inicio pre_protocol")
+ defp pre_protocol(globalvars, semaforo, listaVecinos, numVecinos, me, op_t) do
     pid = self()
     Semaforo.wait(semaforo, pid)
     # ---- Exclusión mútua ----
     GlobalVars.set(globalvars, :request_SC, :true)  # request_SC = true
-    osn = GlobalVars.get(globalvars, :hsn) + 1
+    osn = GlobalVars.get(globalvars, :hsn) + 1      # osn = hsn + 1
     GlobalVars.set(globalvars, :osn, osn)
     # ---- Fin exclusión mútua ----
     Semaforo.signal(semaforo)
-    spawn(fn -> recibir_reply(pid, n) end) # Se escucha las respuestas de los demas procesos
-    Enum.each(listaVecinos, fn pidVecino -> send(pidVecino, {:request_SC, osn, me, op_t}) end) # Enviar peticiones
-    receive do  # Esperar al permiso para entrar en SC
-        :ok_SC -> :ok
-    end
-    IO.puts("Fin pre_protocol")
+    pidListener = spawn(fn -> recibir_reply(pid, numVecinos) end) # Se escucha las respuestas de los demas procesos
+    enviar_peticiones(listaVecinos, pidListener, osn, me, op_t)
  end
 
  defp post_protocol(globalvars) do
-    IO.puts("Inicio post_protocol")
     GlobalVars.set(globalvars, :request_SC, :false)  # request_SC = false
     listaAplazados = GlobalVars.get(globalvars, :listaAplazados)
     Enum.each(listaAplazados, fn aplazado -> send(aplazado, :reply_SC) end) # Contestar a cada proceso
     GlobalVars.set(globalvars, :globalvars, []) # Vaciar lista de aplazados, ya se han contestado 
-    IO.puts("Fin post_protocol") 
+ end
+
+ defp recibir_peticion_init(globalvars, semaforo, me, op1) do
+    Process.register(self, :recibir_peticion)
+    recibir_peticion(globalvars, semaforo, me, op1)
  end
 
  defp recibir_peticion(globalvars, semaforo, me, op1) do
@@ -78,27 +94,46 @@ defmodule Para_Repositorio do
     request_SC = GlobalVars.get(globalvars, :request_SC)
     osn = GlobalVars.get(globalvars, :osn)
     defer_it = request_SC && ((osnVecino > osn) || (osnVecino == osn && idVecino > me)) && exclude(op1, op2)
-    IO.puts("recibir_peticion #{me}: request_sc(#{request_SC}), osnVecino(#{osnVecino}), osn(#{osn}), idVecino(#{idVecino}), me(#{me}) --> defer_it(#{defer_it})")
+    IO.inspect("recibir_peticion #{me}: request_sc(#{request_SC}), osnVecino(#{osnVecino}), osn(#{osn}), idVecino(#{idVecino}), me(#{me}) --> defer_it(#{defer_it})")
     # ---- Fin exclusión mútua ----
     Semaforo.signal(semaforo)
     if (defer_it) do
-        GlobalVars.set(globalvars, :listaAplazados, [GlobalVars.get(globalvars, :listaAplazados) | pidVecino])
+        GlobalVars.set(globalvars, :listaAplazados, GlobalVars.get(globalvars, :listaAplazados) ++ [pidVecino])
     else
+        IO.inspect("me(#{me} doy permiso a idVecino(#{idVecino})")
         send(pidVecino, :reply_SC)
     end
     recibir_peticion(globalvars, semaforo, me, op1)
  end
 
  defp recibir_reply(parent, oustanding_reply_count) do
-    IO.puts("recibir_reply: outstanding_reply_count(#{outstanding_reply_count})")
     if (oustanding_reply_count == 0) do
         send(parent, :ok_SC)
+    else
+        receive do
+            :reply_SC -> recibir_reply(parent, oustanding_reply_count-1)
+        end
     end
-    receive do
-        :reply_SC -> recibir_reply(parent, oustanding_reply_count-1)
+ end  
+
+ defp init(listaNodos, me) do
+    listaVecinos = List.delete_at(listaNodos, me-1) # Se borra el nodo de si mismo
+    numVecinos = length(listaVecinos)
+    {:ok, globalvars} = GlobalVars.start_link()
+    semaforo = Semaforo.create()
+    {listaVecinos, numVecinos, globalvars, semaforo}
+ end
+
+ defp enviar_peticiones(listaVecinos, pidListener, osn, me, op_t) do
+    Enum.each(listaVecinos, fn nodoVecino -> send({:recibir_peticion, nodoVecino}, {:request_SC, pidListener, osn, me, op_t}) end) # Enviar peticiones
+    receive do  # Esperar al permiso para entrar en SC
+        :ok_SC -> :ok
+    after
+        1_000 -> enviar_peticiones(listaVecinos, pidListener, osn, me, op_t)
     end
  end
 
+ # Matriz que define y devuelve la exclusion entre operaciones
  defp exclude(op1, op2) do
     matriz = %{
             update_resumen:     %{update_resumen: true, update_principal: false,update_entrega: false, read_resumen: true, read_principal: false,read_entrega: false},
@@ -112,9 +147,10 @@ defmodule Para_Repositorio do
  end
 end
 
+# Modulo que permite crear un proceso que mantiene las variables globales cada lector/escritor, consultar su valor y cambiarlo
 defmodule GlobalVars do
     def start_link() do
-        Agent.start_link(fn -> %{request_SC: nil, osn: nil, hsn: 0, listaAplazados: []} end)
+        Agent.start_link(fn -> %{request_SC: false, osn: nil, hsn: 0, listaAplazados: []} end)
     end
 
     def get(globalvars, var) do
@@ -126,6 +162,7 @@ defmodule GlobalVars do
     end
 end
 
+# Modulo que permite crear un semaforo en elixir con una cola de espera
 defmodule Semaforo do
  def create() do
     spawn(fn -> semaforo(1, []) end)
@@ -142,12 +179,11 @@ defmodule Semaforo do
     send(semaforo, :signal)
  end
 
- defp semaforo(estado, listaEspera) do
-    IO.puts("Semaforo: estado(#{estado}) listaEspera(#{listaEspera})")
+ def semaforo(estado, listaEspera) do
     receive do
         :signal -> 
-            if !Enum.empty(listaEspera) do      # Hay mas procesos esperando, se da permiso al primero
-                primero = List.pop_at(1, listaEspera)
+            if !Enum.empty?(listaEspera) do      # Hay mas procesos esperando, se da permiso al primero
+                {primero, listaEspera} = List.pop_at(listaEspera, 0)
                 send(primero, :ok)
                 semaforo(0,listaEspera)
             else                                # No hay procesos esperando
@@ -158,7 +194,7 @@ defmodule Semaforo do
                 send(pid, :wait_ok)
                 semaforo(0, listaEspera)
             else
-                semaforo(0, [listaEspera|pid])  # Se añade a la cola 
+                semaforo(0, listaEspera ++ [pid])  # Se añade a la cola 
             end
     end
  end
