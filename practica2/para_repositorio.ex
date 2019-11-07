@@ -5,30 +5,25 @@
  # DESCRIPCION: modulo para un repositorio al que acceden lectores y escritores de forma distribuida
 
 defmodule Para_Repositorio do
- def lanzarEscritores(pidRepo, 1, listaNodos, operaciones) do
+ def lanzarProcesos(pidRepo, 1, listaNodos, operaciones) do
     nodo = Enum.at(listaNodos, 0)
-    op_escritura = Enum.random(operaciones)
-    Node.spawn(nodo, Para_Repositorio, :escritor, [pidRepo, 1, listaNodos, op_escritura])
+    op = Enum.random(operaciones)
+    if (Enum.member?([:update_resumen, :update_principal, :update_entrega], op)) do
+        Node.spawn(nodo, Para_Repositorio, :escritor, [pidRepo, 1, listaNodos, op])
+    else
+        Node.spawn(nodo, Para_Repositorio, :lector, [pidRepo, 1, listaNodos, op])
+    end
  end
 
- def lanzarEscritores(pidRepo, n, listaNodos, operaciones) do 
+ def lanzarProcesos(pidRepo, n, listaNodos, operaciones) do 
     nodo = Enum.at(listaNodos, n-1)
-    op_escritura = Enum.random(operaciones)
-    Node.spawn(nodo, Para_Repositorio, :escritor, [pidRepo, n, listaNodos, op_escritura])
-    lanzarEscritores(pidRepo, n-1, listaNodos, operaciones)
- end
-
-  def lanzarLectores(pidRepo, 1, listaNodos, operaciones) do
-    nodo = Enum.at(listaNodos, 0)
-    op_lectura = Enum.random(operaciones)
-    Node.spawn(nodo, Para_Repositorio, :lector, [pidRepo, 1, listaNodos, op_lectura])
- end
-
- def lanzarLectores(pidRepo, n, listaNodos, operaciones) do 
-    nodo = Enum.at(listaNodos, n-1)
-    op_lectura = Enum.random(operaciones)
-    Node.spawn(nodo, Para_Repositorio, :lector, [pidRepo, n, listaNodos, op_escritura])
-    lanzarEscritores(pidRepo, n-1, listaNodos, operaciones)
+    op = Enum.random(operaciones)
+    if (Enum.member?([:update_resumen, :update_principal, :update_entrega], op)) do
+        Node.spawn(nodo, Para_Repositorio, :escritor, [pidRepo, n, listaNodos, op])
+    else
+        Node.spawn(nodo, Para_Repositorio, :lector, [pidRepo, n, listaNodos, op])
+    end
+    lanzarProcesos(pidRepo, n-1, listaNodos, operaciones)
  end
  
  def lector(pidRepo, me, listaNodos, op_lectura) do
@@ -37,9 +32,10 @@ defmodule Para_Repositorio do
     #Process.sleep(round(:rand.uniform(100)/100 * 2000)) # Simulacion para tener distintos osn
     pre_protocol(globalvars, semaforo, listaVecinos, numVecinos, me, op_lectura)
     # ---- Inicio SC ----
+    Process.sleep(3000)
     send(pidRepo, {op_lectura, self()})
     receive do
-        {:reply, texto} -> IO.inspect("Lector #{me} he leido: #{texto}")
+        {:reply, texto} -> IO.inspect("Nodo #{me} -> he leido: #{texto}")
     end
     # ----- Fin SC ------
     post_protocol(globalvars)
@@ -51,12 +47,21 @@ defmodule Para_Repositorio do
     #Process.sleep(round(:rand.uniform(100)/100 * 2000)) # Simulacion para tener distintos osn
     pre_protocol(globalvars, semaforo, listaVecinos, numVecinos, me, op_escritura)
     # ---- Inicio SC ----
+    Process.sleep(3000)
     send(pidRepo, {op_escritura, self(), me})
     receive do
-        {:reply, :ok} -> IO.inspect("Escritor #{me} he escrito")
+        {:reply, :ok} -> IO.inspect("Nodo #{me} -> he escrito")
     end
     # ----- Fin SC ------
     post_protocol(globalvars)
+ end
+
+  defp init(listaNodos, me) do
+    listaVecinos = List.delete_at(listaNodos, me-1) # Se borra el nodo de si mismo
+    numVecinos = length(listaVecinos)
+    {:ok, globalvars} = GlobalVars.start_link()
+    semaforo = Semaforo.create()
+    {listaVecinos, numVecinos, globalvars, semaforo}
  end
  
  defp pre_protocol(globalvars, semaforo, listaVecinos, numVecinos, me, op_t) do
@@ -80,7 +85,7 @@ defmodule Para_Repositorio do
  end
 
  defp recibir_peticion_init(globalvars, semaforo, me, op1) do
-    Process.register(self, :recibir_peticion)
+    Process.register(self(), :recibir_peticion)
     recibir_peticion(globalvars, semaforo, me, op1)
  end
 
@@ -94,13 +99,12 @@ defmodule Para_Repositorio do
     request_SC = GlobalVars.get(globalvars, :request_SC)
     osn = GlobalVars.get(globalvars, :osn)
     defer_it = request_SC && ((osnVecino > osn) || (osnVecino == osn && idVecino > me)) && exclude(op1, op2)
-    IO.inspect("recibir_peticion #{me}: request_sc(#{request_SC}), osnVecino(#{osnVecino}), osn(#{osn}), idVecino(#{idVecino}), me(#{me}) --> defer_it(#{defer_it})")
+    IO.inspect("Nodo #{me} -> Peticion de #{idVecino}: defer_it(#{defer_it}) --> request_sc(#{request_SC}), osnVecino(#{osnVecino}), osn(#{osn}), idVecino(#{idVecino}), op1(#{op1}), op2(#{op2})")
     # ---- Fin exclusión mútua ----
     Semaforo.signal(semaforo)
     if (defer_it) do
         GlobalVars.set(globalvars, :listaAplazados, GlobalVars.get(globalvars, :listaAplazados) ++ [pidVecino])
     else
-        IO.inspect("me(#{me} doy permiso a idVecino(#{idVecino})")
         send(pidVecino, :reply_SC)
     end
     recibir_peticion(globalvars, semaforo, me, op1)
@@ -115,14 +119,6 @@ defmodule Para_Repositorio do
         end
     end
  end  
-
- defp init(listaNodos, me) do
-    listaVecinos = List.delete_at(listaNodos, me-1) # Se borra el nodo de si mismo
-    numVecinos = length(listaVecinos)
-    {:ok, globalvars} = GlobalVars.start_link()
-    semaforo = Semaforo.create()
-    {listaVecinos, numVecinos, globalvars, semaforo}
- end
 
  defp enviar_peticiones(listaVecinos, pidListener, osn, me, op_t) do
     Enum.each(listaVecinos, fn nodoVecino -> send({:recibir_peticion, nodoVecino}, {:request_SC, pidListener, osn, me, op_t}) end) # Enviar peticiones
