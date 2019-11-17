@@ -29,7 +29,7 @@ defmodule Para_Repositorio do
  def lector(pidRepo, me, listaNodos, op_lectura) do
     {listaVecinos, numVecinos, globalvars, semaforo} = init(listaNodos, me)
     spawn(fn -> recibir_peticion_init(globalvars, semaforo, me, op_lectura) end)
-    #Process.sleep(round(:rand.uniform(100)/100 * 2000)) # Simulacion para tener distintos osn
+    Process.sleep(round(:rand.uniform(100)/100 * 2000)) # Simulacion para tener distintos osn
     pre_protocol(globalvars, semaforo, listaVecinos, numVecinos, me, op_lectura)
     # ---- Inicio SC ----
     Process.sleep(3000)
@@ -44,7 +44,7 @@ defmodule Para_Repositorio do
  def escritor(pidRepo, me, listaNodos, op_escritura) do
     {listaVecinos, numVecinos, globalvars, semaforo} = init(listaNodos, me)
     spawn(fn -> recibir_peticion_init(globalvars, semaforo, me, op_escritura) end)
-    #Process.sleep(round(:rand.uniform(100)/100 * 2000)) # Simulacion para tener distintos osn
+    Process.sleep(round(:rand.uniform(100)/100 * 2000)) # Simulacion para tener distintos osn
     pre_protocol(globalvars, semaforo, listaVecinos, numVecinos, me, op_escritura)
     # ---- Inicio SC ----
     Process.sleep(3000)

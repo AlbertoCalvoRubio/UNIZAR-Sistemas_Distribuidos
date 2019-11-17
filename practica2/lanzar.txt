@@ -19,5 +19,5 @@ Node.connect(:"nodo6@127.0.0.1")
 
 Para_Repositorio.lanzarProcesos({:repo, :"nodo5@127.0.0.1"}, 4, [:"nodo1@127.0.0.1", :"nodo2@127.0.0.1",:"nodo3@127.0.0.1", :"nodo4@127.0.0.1"],[:read_entrega, :update_entrega])
 
-
+clear
 
