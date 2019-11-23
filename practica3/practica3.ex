@@ -86,7 +86,6 @@ defmodule Master do
       result ->
         send(pidProxy, {:result_master, result}) # Envio resultado a proxy
         Pool.liberarWorker(nodoPool, pidWorker)
-        IO.inspect("Resultado a master = #{result}")
     after
       2500 -> Process.exit(pidWorker, :timeout)
     end
@@ -158,7 +157,7 @@ defmodule Pool do
     Process.sleep(10300)
     Queue.push(queue, pidWorker)
     receive do
-      {:EXIT, from_pid, reason} ->
+      {:EXIT, _from_pid, _reason} ->
         Queue.delete(queue, pidWorker)
         vigilante(nodoWorker, queue)
     end
@@ -187,7 +186,6 @@ defmodule Queue do
   end
 
   def queue(lista) do
-    IO.inspect(lista)
     receive do
       {:push, value} -> queue(lista ++ [value])
       {:pop, pid} ->
@@ -207,5 +205,116 @@ defmodule Queue do
 end
 
 defmodule Maton do
+  def init(id, listaParticipantes) do
+    Process.register(self(), :maton)
+    listaVecinos = List.delete_at(listaParticipantes, id - 1)
+    seguidor(id, listaParticipantes, listaVecinos)
+  end
 
+  def seguidor(id, listaParticipantes, listaVecinos) do
+    IO.inspect("#{id}: Soy seguidor")
+    receive do
+      {:soy_lider, pidLider} -> seguidor(id, listaParticipantes, listaVecinos)
+      {:eleccion, idSolicitante, pidSolicitante} ->
+        contestar(id, idSolicitante, pidSolicitante)
+        empezarEleccion(id, listaParticipantes, listaVecinos)
+        espera_ok(id, listaParticipantes, listaVecinos)
+      {:latido, pidLider} ->
+        send(pidLider, :reply)
+        seguidor(id, listaParticipantes, listaVecinos)
+    after
+      2000 -> empezarEleccion(id, listaParticipantes, listaVecinos)
+              espera_ok(id, listaParticipantes, listaVecinos)
+
+    end
+  end
+
+  def lider(id, listaParticipantes, listaVecinos, listaLatidos) do
+    IO.inspect("Soy lider #{id}")
+    receive do
+      {:eleccion, idSolicitante, pidSolicitante} ->
+        Enum.each(listaLatidos, fn latido -> Process.exit(latido, :fin_lider) end)
+        contestar(id, idSolicitante, pidSolicitante)
+        empezarEleccion(id, listaParticipantes, listaVecinos)
+        espera_ok(id, listaParticipantes, listaVecinos)
+    end
+  end
+
+  def espera_ok(id, listaParticipantes, listaVecinos) do
+    IO.inspect("Espero_ok #{id}")
+    receive do
+      {:soy_lider, pidLider} -> seguidor(id, listaParticipantes, listaVecinos)
+      {:eleccion, idSolicitante, pidSolicitante} -> contestar(id, idSolicitante, pidSolicitante)
+                                                    espera_ok(id, listaParticipantes, listaVecinos)
+      :ok -> espera_lider(id, listaParticipantes, listaVecinos)
+    after
+      500 -> Enum.each(listaVecinos, fn participante -> send({:maton, participante}, {:soy_lider, self()}) end)
+             listaLatidos = iniciarLatidos(listaParticipantes, listaVecinos)
+             lider(id, listaParticipantes, listaVecinos, listaLatidos)
+    end
+  end
+
+  def espera_lider(id, listaParticipantes, listaVecinos) do
+    IO.inspect("Espero_lider #{id}")
+    receive do
+      :ok -> espera_lider(id, listaParticipantes, listaVecinos)
+      {:eleccion, idSolicitante, pidSolicitante} -> contestar(id, idSolicitante, pidSolicitante)
+                                                    espera_lider(id, listaParticipantes, listaVecinos)
+      {:soy_lider, pidLider} -> seguidor(id, listaParticipantes, listaVecinos)
+    after
+      2000 -> IO.inspect("No llega lider #{id}")
+              empezarEleccion(id, listaParticipantes, listaVecinos)
+              espera_ok(id, listaParticipantes, listaVecinos)
+    end
+  end
+
+  def empezarEleccion(id, listaParticipantes, listaVecinos) do
+    IO.inspect("Inicio eleccion #{id}")
+    participantesMayores = Enum.drop(listaVecinos, id - 1)
+    Enum.each(participantesMayores, fn participante -> send({:maton, participante}, {:eleccion, id, self()}) end)
+  end
+
+  def iniciarLatidos(listaParticipantes, listaVecinos) do
+    Enum.map(
+      listaVecinos,
+      fn participante ->
+        spawn(
+          fn ->
+            latido(
+              listaParticipantes,
+              participante,
+              Enum.find_index(listaVecinos, fn x -> x === participante end),
+              0
+            )
+          end
+        )
+      end
+    )
+  end
+
+  def latido(listaParticipantes, participante, id, veces) do
+    if (veces < 30) do
+      Process.sleep(50)
+      send({:maton, participante}, {:latido, self()})
+      receive do
+        :reply -> latido(listaParticipantes, participante, id, veces)
+      after
+        100 -> latido(listaParticipantes, participante, id, veces + 1)
+      end
+    else
+      nombre = List.first(String.split(Atom.to_string(participante), "@"))
+      host = List.last(String.split(Atom.to_string(participante), "@"))
+      NodoRemoto.start(nombre, host, "/home/alberto/github/sistdistribuidos/practica3/practica3.ex")
+      NodoRemoto.esperaNodoOperativo(participante, Worker)
+      Node.spawn(participante, Maton, :init, [id, listaParticipantes])
+      latido(listaParticipantes, participante, id, 0)
+    end
+
+  end
+
+  defp contestar(id, idSolicitante, pidSolicitante) do
+    if (idSolicitante < id) do
+      send(pidSolicitante, :ok)
+    end
+  end
 end
