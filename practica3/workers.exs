@@ -61,7 +61,11 @@ defmodule Cliente do
       {:result, l} -> l
     end
     tiempoTotal = Time.diff(Time.utc_now, tiempoInicial, :milliseconds)
-    IO.inspect("Respuesta = #{resultado} en tiempo = #{tiempoTotal}")
+    if (resultado == 0) do
+      IO.inspect("***************NO SE HA CUMPLIDO EL QOS***************")
+    else
+      IO.inspect("Respuesta = #{resultado} en tiempo = #{tiempoTotal}")
+    end
   end
 
   defp launch(pid, 1) do

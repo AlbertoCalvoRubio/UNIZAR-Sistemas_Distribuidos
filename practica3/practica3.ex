@@ -17,7 +17,7 @@ defmodule Proxy do
   end
 
   @doc """
-    Proceso que envia la peticion del cliente al master, espera su resultado y lo envia al cliente
+    Envia la peticion del cliente al master, espera su resultado y lo envia al cliente
   """
   def atender(listaMasters, pid, value) do
     # Recibe respuestas
@@ -33,6 +33,9 @@ defmodule Proxy do
     send(pid, {:result, respuestaFinal})
   end
 
+  @doc """
+    Recibe los resultados de los master hasta que recibe un mensaje del proxy y envia el más repetido
+  """
   def recibirResultados(resultados) do
     receive do
       # Devuelve el resultado que mas veces se repita
@@ -58,17 +61,14 @@ defmodule Master do
   @doc """
     Crear un Master y ejecuta la lógica de elección de lider
   """
-  def init(nodoPool) do
+  def init(nodoPool, id, listaParticipantes) do
     Process.register(self(), :master)
-    #IO.puts("Master creado")
     # Iniciar logica de eleccion de lider
+    spawn(fn -> Maton.init(nodoPool, id, listaParticipantes) end)
     # Comenzar funcion master
     master(nodoPool)
   end
 
-  @doc """
-    Ejecuta la logica del master, recibe peticiones y crea procesos que las atiendan
-  """
   defp master(nodoPool) do
     receive do
       {:req, pidProxy, value} -> spawn(Master, :atender, [pidProxy, nodoPool, value])
@@ -89,7 +89,6 @@ defmodule Master do
     after
       2500 -> Process.exit(pidWorker, :timeout)
     end
-    #IO.puts("Master.atender -> resultado enviado y worker_free")
   end
 end
 
@@ -99,7 +98,8 @@ defmodule Pool do
   """
 
   @doc """
-
+    Para cada nodo donde se creara un worker, spawnea un vigilante.
+    Crea un proceso que recibe liberaciones de workers y otro de peticiones
   """
   def init(listaNodos, queue) do
     Enum.each(listaNodos, fn x -> spawn(Pool, :vigilante, [x, queue]) end)
@@ -142,6 +142,10 @@ defmodule Pool do
     end
   end
 
+  @doc """
+    Crea un proceso vigilante de un nodo y el worker que debe existir en el nodo
+    Si no existe el nodo, lo crea y con él el worker mediante un enlace.
+  """
   def vigilante(nodoWorker, queue) do
     respuesta = Node.ping(nodoWorker)
     if respuesta == :pang do # Nodo caido
@@ -164,8 +168,11 @@ defmodule Pool do
   end
 end
 
-# FIFO List
+
 defmodule Queue do
+  @moduledoc """
+    Modulo que implementa una cola, si la cola esta vacia, se bloquea hasta recibir un elemento
+  """
   def start_link() do
     spawn_link(fn -> queue([]) end)
   end
@@ -205,82 +212,85 @@ defmodule Queue do
 end
 
 defmodule Maton do
-  def init(id, listaParticipantes) do
+  @moduledoc """
+    Modulo que implementa el algoritmo del maton, esta compuesto por cuatro funciones o estados
+  """
+  def init(nodoPool, id, listaParticipantes) do
     Process.register(self(), :maton)
     listaVecinos = List.delete_at(listaParticipantes, id - 1)
-    seguidor(id, listaParticipantes, listaVecinos)
+    seguidor(nodoPool, id, listaParticipantes, listaVecinos)
   end
 
-  def seguidor(id, listaParticipantes, listaVecinos) do
+  def seguidor(nodoPool, id, listaParticipantes, listaVecinos) do
     IO.inspect("#{id}: Soy seguidor")
     receive do
-      {:soy_lider, pidLider} -> seguidor(id, listaParticipantes, listaVecinos)
+      {:soy_lider, pidLider} -> seguidor(nodoPool, id, listaParticipantes, listaVecinos)
       {:eleccion, idSolicitante, pidSolicitante} ->
         contestar(id, idSolicitante, pidSolicitante)
-        empezarEleccion(id, listaParticipantes, listaVecinos)
-        espera_ok(id, listaParticipantes, listaVecinos)
+        empezarEleccion(id, listaVecinos)
+        espera_ok(nodoPool, id, listaParticipantes, listaVecinos)
       {:latido, pidLider} ->
         send(pidLider, :reply)
-        seguidor(id, listaParticipantes, listaVecinos)
+        seguidor(nodoPool, id, listaParticipantes, listaVecinos)
     after
-      2000 -> empezarEleccion(id, listaParticipantes, listaVecinos)
-              espera_ok(id, listaParticipantes, listaVecinos)
+      2000 -> empezarEleccion(id, listaVecinos)
+              espera_ok(nodoPool, id, listaParticipantes, listaVecinos)
 
     end
   end
 
-  def lider(id, listaParticipantes, listaVecinos, listaLatidos) do
+  def lider(nodoPool, id, listaParticipantes, listaVecinos, listaLatidos) do
     IO.inspect("Soy lider #{id}")
     receive do
       {:eleccion, idSolicitante, pidSolicitante} ->
         Enum.each(listaLatidos, fn latido -> Process.exit(latido, :fin_lider) end)
         contestar(id, idSolicitante, pidSolicitante)
-        empezarEleccion(id, listaParticipantes, listaVecinos)
-        espera_ok(id, listaParticipantes, listaVecinos)
+        empezarEleccion(id, listaVecinos)
+        espera_ok(nodoPool, id, listaParticipantes, listaVecinos)
     end
   end
 
-  def espera_ok(id, listaParticipantes, listaVecinos) do
+  def espera_ok(nodoPool, id, listaParticipantes, listaVecinos) do
     IO.inspect("Espero_ok #{id}")
     receive do
-      {:soy_lider, pidLider} -> seguidor(id, listaParticipantes, listaVecinos)
+      {:soy_lider, pidLider} -> seguidor(nodoPool, id, listaParticipantes, listaVecinos)
       {:eleccion, idSolicitante, pidSolicitante} -> contestar(id, idSolicitante, pidSolicitante)
-                                                    espera_ok(id, listaParticipantes, listaVecinos)
-      :ok -> espera_lider(id, listaParticipantes, listaVecinos)
+                                                    espera_ok(nodoPool, id, listaParticipantes, listaVecinos)
+      :ok -> espera_lider(nodoPool, id, listaParticipantes, listaVecinos)
     after
       500 -> Enum.each(listaVecinos, fn participante -> send({:maton, participante}, {:soy_lider, self()}) end)
-             listaLatidos = iniciarLatidos(listaParticipantes, listaVecinos)
-             lider(id, listaParticipantes, listaVecinos, listaLatidos)
+             listaLatidos = iniciarLatidos(nodoPool, listaParticipantes, listaVecinos)
+             lider(nodoPool, id, listaParticipantes, listaVecinos, listaLatidos)
     end
   end
 
-  def espera_lider(id, listaParticipantes, listaVecinos) do
+  def espera_lider(nodoPool, id, listaParticipantes, listaVecinos) do
     IO.inspect("Espero_lider #{id}")
     receive do
-      :ok -> espera_lider(id, listaParticipantes, listaVecinos)
+      :ok -> espera_lider(nodoPool, id, listaParticipantes, listaVecinos)
       {:eleccion, idSolicitante, pidSolicitante} -> contestar(id, idSolicitante, pidSolicitante)
-                                                    espera_lider(id, listaParticipantes, listaVecinos)
-      {:soy_lider, pidLider} -> seguidor(id, listaParticipantes, listaVecinos)
+                                                    espera_lider(nodoPool, id, listaParticipantes, listaVecinos)
+      {:soy_lider, pidLider} -> seguidor(nodoPool, id, listaParticipantes, listaVecinos)
     after
       2000 -> IO.inspect("No llega lider #{id}")
-              empezarEleccion(id, listaParticipantes, listaVecinos)
-              espera_ok(id, listaParticipantes, listaVecinos)
+              empezarEleccion(id, listaVecinos)
+              espera_ok(nodoPool, id, listaParticipantes, listaVecinos)
     end
   end
 
-  def empezarEleccion(id, listaParticipantes, listaVecinos) do
+  defp empezarEleccion(id, listaVecinos) do
     IO.inspect("Inicio eleccion #{id}")
     participantesMayores = Enum.drop(listaVecinos, id - 1)
     Enum.each(participantesMayores, fn participante -> send({:maton, participante}, {:eleccion, id, self()}) end)
   end
 
-  def iniciarLatidos(listaParticipantes, listaVecinos) do
-    Enum.map(
-      listaVecinos,
+  def iniciarLatidos(nodoPool, listaParticipantes, listaVecinos) do
+    Enum.map(listaVecinos,
       fn participante ->
         spawn(
           fn ->
             latido(
+              nodoPool,
               listaParticipantes,
               participante,
               Enum.find_index(listaVecinos, fn x -> x === participante end),
@@ -292,24 +302,15 @@ defmodule Maton do
     )
   end
 
-  def latido(listaParticipantes, participante, id, veces) do
-    if (veces < 30) do
-      Process.sleep(50)
-      send({:maton, participante}, {:latido, self()})
-      receive do
-        :reply -> latido(listaParticipantes, participante, id, veces)
-      after
-        100 -> latido(listaParticipantes, participante, id, veces + 1)
-      end
-    else
-      nombre = List.first(String.split(Atom.to_string(participante), "@"))
-      host = List.last(String.split(Atom.to_string(participante), "@"))
-      NodoRemoto.start(nombre, host, "/home/alberto/github/sistdistribuidos/practica3/practica3.ex")
-      NodoRemoto.esperaNodoOperativo(participante, Worker)
-      Node.spawn(participante, Maton, :init, [id, listaParticipantes])
-      latido(listaParticipantes, participante, id, 0)
+  def latido(nodoPool, listaParticipantes, participante, id, veces) do
+    #if (veces < 30) do
+    Process.sleep(500)
+    send({:maton, participante}, {:latido, self()})
+    receive do
+      :reply -> latido(nodoPool, listaParticipantes, participante, id, 0)
+    after
+      100 -> latido(nodoPool, listaParticipantes, participante, id, veces + 1)
     end
-
   end
 
   defp contestar(id, idSolicitante, pidSolicitante) do
