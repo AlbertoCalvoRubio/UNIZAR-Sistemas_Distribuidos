@@ -1,0 +1,1 @@
+elixir --name nodo1@127.0.0.1 --cookie palabrasecreta --erl '-kernel_inet_dist_listen_min 32000' --erl  '-kernel_inet_dist_listen_max 32049' servicio_vistas_tests.exs
