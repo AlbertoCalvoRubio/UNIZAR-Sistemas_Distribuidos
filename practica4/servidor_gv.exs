@@ -79,13 +79,15 @@ defmodule ServidorGV do
   end
 
   defp bucle_recepcion(vista_valida, vista_tentativa, latidos, consistente) do
-    receive do
-      {:latido, n_vista_latido, nodo_emisor} ->
-        if (consistente) do
+    if (consistente) do
+      receive do
+        {:latido, n_vista_latido, nodo_emisor} ->
+          IO.puts("Latido recibido")
           if (n_vista_latido == 0) do # Caida
             {vista_valida, vista_tentativa, latidos, consistente} =
               tratar_caida(vista_valida, vista_tentativa, latidos, nodo_emisor)
             enviar_tentativa(vista_valida, vista_tentativa, nodo_emisor)
+            ##IO.inspect(vista_tentativa)
             bucle_recepcion(vista_valida, vista_tentativa, latidos, consistente)
 
           else # Caso normal
@@ -96,23 +98,29 @@ defmodule ServidorGV do
               vista_tentativa, nodo_emisor)
 
             enviar_tentativa(vista_valida, vista_tentativa, nodo_emisor)
+            #IO.inspect(vista_tentativa)
             bucle_recepcion(vista_valida, vista_tentativa, latidos, consistente)
           end
-        end
+
+        {:obten_vista_valida, pid} ->
+          IO.puts(":obten_vista_valida recibido")
+          # Devolver vista valida
+          send(pid, {:vista_valida, vista_valida, vista_valida == vista_tentativa})
+          #IO.inspect(vista_tentativa)
+          bucle_recepcion(vista_valida, vista_tentativa, latidos, consistente)
 
 
-      {:obten_vista_valida, pid} ->
-        # Devolver vista valida
-        send(pid, {:vista_valida, vista_valida, vista_valida == vista_tentativa})
-        bucle_recepcion(vista_valida, vista_tentativa, latidos, consistente)
-
-
-      :procesa_situacion_servidores ->
-        # Actualizar situacion de servidores si es necesario
-        {vista_valida, vista_tentativa, latidos, consistente} =
-          procesa_situacion_servidores(vista_valida, vista_tentativa, latidos,
-            consistente)
-        bucle_recepcion(vista_valida, vista_tentativa, latidos, consistente)
+        :procesa_situacion_servidores ->
+          IO.puts(":procesa_situacion_servidores recibido")
+          # Actualizar situacion de servidores si es necesario
+          {vista_valida, vista_tentativa, latidos, consistente} =
+            procesa_situacion_servidores(vista_valida, vista_tentativa, latidos,
+              consistente)
+          #IO.inspect(vista_tentativa)
+          bucle_recepcion(vista_valida, vista_tentativa, latidos, consistente)
+      end
+    else
+      IO.puts("END: Estado del sistema no consistentem parada critica")
     end
   end
 
@@ -128,10 +136,10 @@ defmodule ServidorGV do
 
       # Comprobar servidores caidos
       # POSIBLE ERROR? ALOMEJOR DEBERIA SER DE LA VISTA_TENTATIVA
-      primario_caido? = (vista_valida.primario != :undefined
-        && !List.keymember?(latidos, vista_valida.primario, 0))
-      copia_caido? = (vista_valida.copia != :undefined
-        && !List.keymember?(latidos, vista_valida.copia, 0))
+      primario_caido? = (vista_tentativa.primario != :undefined
+        && !List.keymember?(latidos, vista_tentativa.primario, 0))
+      copia_caido? = (vista_tentativa.copia != :undefined
+        && !List.keymember?(latidos, vista_tentativa.copia, 0))
 
       {vista_valida, vista_tentativa, latidos, consistente} =
         actualizar_servidores(primario_caido?, copia_caido?, vista_valida,
@@ -144,11 +152,13 @@ defmodule ServidorGV do
   end
 
   defp tratar_caida(vista_valida, vista_tentativa, latidos, nodo_emisor) do
-    primario_caido? = (vista_valida.primario == nodo_emisor
+    #IO.inspect(nodo_emisor)
+    primario_caido? = (vista_tentativa.primario == nodo_emisor
       && List.keymember?(latidos, nodo_emisor, 0))
-    copia_caido? = (vista_valida.copia == nodo_emisor
+    copia_caido? = (vista_tentativa.copia == nodo_emisor
                     && List.keymember?(latidos, nodo_emisor, 0))
-
+    #IO.inspect(vista_tentativa)
+    #IO.inspect(copia_caido?)
     # Se elimina de los latidos en caso de existir
     latidos = List.keydelete(latidos, nodo_emisor, 0)
 
@@ -179,7 +189,7 @@ defmodule ServidorGV do
         vista_tentativa, latidos)
 
 
-    {vista_valida, vista_tentativa, latidos, true}
+    {vista_valida, vista_tentativa, latidos, consistente}
   end
 
   defp reset_latidos(latidos, nodo_emisor) do
@@ -263,20 +273,23 @@ defmodule ServidorGV do
 
   defp actualizar_servidores(primario_caido?, copia_caido?, vista_valida,
          vista_tentativa, latidos) do
-    if (primario_caido? && copia_caido?) do # Perdida consistencia
-      vista_valida = vista_inicial()
-      consistente = false
-      IO.puts("ERROR: Primario y copia caidos")
-      {vista_valida, vista_tentativa, latidos, consistente}
+    cond do
+      primario_caido? && copia_caido? ->
+        IO.puts("ERROR: Primario y copia caidos")
+        {vista_inicial(), vista_tentativa, latidos, false}
 
-    else
-      # Se comprueba si hay que promocionar servidores
-      vista_tentativa = cond do
-        primario_caido? -> actualizar_primario_caido(vista_tentativa, latidos)
-        copia_caido? -> actualizar_copia_caido(vista_tentativa, latidos)
-        true -> vista_tentativa
-      end
-      {vista_valida, vista_tentativa, latidos, true}
+      primario_caido? && (vista_valida != vista_tentativa) ->
+        IO.puts("ERROR: Primario caido con vista_tentativa sin confirmar")
+        {vista_inicial(), vista_tentativa, latidos, false}
+
+      true ->
+        # Se comprueba si hay que promocionar servidores
+        vista_tentativa = cond do
+          primario_caido? -> actualizar_primario_caido(vista_tentativa, latidos)
+          copia_caido? -> actualizar_copia_caido(vista_tentativa, latidos)
+          true -> vista_tentativa
+        end
+        {vista_valida, vista_tentativa, latidos, true}
     end
   end
 end

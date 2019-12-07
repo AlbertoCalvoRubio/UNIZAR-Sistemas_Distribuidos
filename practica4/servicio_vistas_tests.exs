@@ -149,11 +149,33 @@ defmodule GestorVistasTest do
   ##          - Cae, pero C1 no es promocionado porque C3 no confimo !
   # primario_no_confirma_vista(C1, C2, C3),
   # @tag :deshabilitado
+  test "Servidor de vistas espera a que primario confirme", %{c3: c3, c1: c1,
+    c2: c2} do
+    IO.puts("Test 8: Servidor de vistas espera a que primario confirme ...")
+
+    # Primario cae sin confirmar
+    primario_no_confirma_vista(c3, 0, ServidorGV.latidos_fallidos() * 2)
+
+    comprobar_tentativa(c2, :undefined, :undefined, 0)
+
+    IO.puts(" ... Superado")
+  end
 
   
   ## Test 9 : Si anteriores servidores caen (Primario  y Copia),
   ##       un nuevo servidor sin inicializar no puede convertirse en primario.
   # sin_inicializar_no(C1, C2, C3),
+  test "Sin inicializar no", %{c3: c3, c1: c1, c2: c2} do
+    IO.puts("Test 9: Sin inicializar no ...")
+
+    # c2 manda latidos pero no debe convertirse en lider ni copia
+    sin_inicializar(c2, 0, ServidorGV.latidos_fallidos() * 2)
+
+    comprobar_tentativa(c2, :undefined, :undefined, 0)
+
+    IO.puts(" ... Superado")
+  end
+
 
   
   # ------------------ FUNCIONES DE APOYO A TESTS ------------------------
@@ -279,6 +301,30 @@ defmodule GestorVistasTest do
     if vista.primario != c3 do
       Process.sleep(ServidorGV.intervalo_latidos())
       primario_rearrancado(c1, c3, num_vista_tentativa, x - 1)
+    end
+  end
+
+  ##
+  defp primario_no_confirma_vista(_c3, _num_vista, 0), do: :fin
+
+  defp primario_no_confirma_vista(c3, num_vista, x) do
+    {vista, _} = ClienteGV.latido(c3, num_vista)
+
+    if (vista.primario != :undefined || vista.copia != :undefined) do
+      primario_no_confirma_vista(c3, num_vista, x-1)
+      Process.sleep(ServidorGV.intervalo_latidos())
+    end
+  end
+
+  ##
+  defp sin_inicializar(_c2, _num_vista, 0), do: :fin
+
+  defp sin_inicializar(c2, num_vista, x) do
+    {vista, _} = ClienteGV.latido(c2, num_vista)
+
+    if (vista.primario != :undefined || vista.copia != :undefined) do
+      primario_no_confirma_vista(c2, num_vista, x-1)
+      Process.sleep(ServidorGV.intervalo_latidos())
     end
   end
   
