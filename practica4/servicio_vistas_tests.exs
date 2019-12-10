@@ -149,8 +149,7 @@ defmodule GestorVistasTest do
   ##          - Cae, pero C1 no es promocionado porque C3 no confimo !
   # primario_no_confirma_vista(C1, C2, C3),
   # @tag :deshabilitado
-  test "Servidor de vistas espera a que primario confirme", %{c3: c3, c1: c1,
-    c2: c2} do
+  test "Servidor de vistas espera a que primario confirme", %{c3: c3, c2: c2} do
     IO.puts("Test 8: Servidor de vistas espera a que primario confirme ...")
 
     # Primario cae sin confirmar
@@ -165,7 +164,7 @@ defmodule GestorVistasTest do
   ## Test 9 : Si anteriores servidores caen (Primario  y Copia),
   ##       un nuevo servidor sin inicializar no puede convertirse en primario.
   # sin_inicializar_no(C1, C2, C3),
-  test "Sin inicializar no", %{c3: c3, c1: c1, c2: c2} do
+  test "Sin inicializar no", %{c2: c2} do
     IO.puts("Test 9: Sin inicializar no ...")
 
     # c2 manda latidos pero no debe convertirse en lider ni copia

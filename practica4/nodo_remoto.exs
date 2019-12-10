@@ -13,7 +13,6 @@ defmodule NodoRemoto do
   """
   @spec start(String.t(), String.t(), String.t()) :: node
   def start(nombre, host, fichero_programa_cargar) do
-    IO.inspect(fichero_programa_cargar)
     System.cmd("ssh", [
       host,
       "elixir --name #{nombre}@#{host} --cookie palabrasecreta",
@@ -25,7 +24,6 @@ defmodule NodoRemoto do
 
     # Devolver el atomo que referencia al nodo Elixir a poner en marcha
     nodo = String.to_atom(nombre <> "@" <> host)
-    IO.inspect(nodo)
     nodo
   end
 
