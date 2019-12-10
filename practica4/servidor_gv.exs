@@ -1,3 +1,9 @@
+# Practica 4 Sistemas distribuidos
+# Autores: Óscar Baselga y Alberto Calvo
+# NIAs: 760077 y 760739
+# Fecha: 10 de diciembre de 2019
+
+
 require IEx # Para utilizar IEx.pry
 
 defmodule ServidorGV do
