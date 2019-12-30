@@ -1,5 +1,10 @@
 Code.require_file("#{__DIR__}/cliente_gv.exs")
 
+# Practica 5 Sistemas distribuidos
+# Autores: Óscar Baselga y Alberto Calvo
+# NIAs: 760077 y 760739
+# Fecha: 30 de diciembre de 2019
+
 defmodule ServidorSA do
 
   # estado del servidor
