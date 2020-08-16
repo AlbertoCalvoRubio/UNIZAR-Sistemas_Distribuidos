@@ -35,3 +35,6 @@ Prácticas de la asignatura Sistemas distribuidos realizadas en Elixir
 - Extender práctica 4
 - Test de validación
 
+> Puntuación: 9,5/10 
+
+> *Nota final prácticas*: 9,8/10
