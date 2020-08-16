@@ -1,4 +1,4 @@
-# sistdistribuidos
+# Sistemas distribuidos
 Prácticas de la asignatura Sistemas distribuidos realizadas en Elixir
 
 ## Práctica 1 
@@ -8,7 +8,7 @@ Prácticas de la asignatura Sistemas distribuidos realizadas en Elixir
 
 > Puntuación: 10/10
 
-## Pŕactica 2
+## Práctica 2
 - Relojes lógicos de Lamport
 - Algoritmo de Ricart-Agrawala
 - Problema lectores/escritores
@@ -37,4 +37,4 @@ Prácticas de la asignatura Sistemas distribuidos realizadas en Elixir
 
 > Puntuación: 9,5/10 
 
-> *Nota final prácticas*: 9,8/10
+> Nota final prácticas: 9,8/10
